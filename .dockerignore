@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+state
+logs
+credentials.json
+token.json
+.env
+tests
+apps_script

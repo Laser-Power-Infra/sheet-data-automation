@@ -1,0 +1,45 @@
+services:
+  sheet-data-automation:
+    build: .
+    container_name: sheet-data-automation
+    env_file:
+      - .env
+    environment:
+      TZ: Asia/Kolkata
+      ARCHIVE_ROOT: /mnt/alu/ALU price history
+      ARCHIVE_STATE_FILE: /state/archive_state.json
+      HEADLESS: "true"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./state:/state
+      - ./logs:/app/logs
+      - condutor:/mnt/alu/
+    shm_size: "1gb"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 90s
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  # W:\ALU price history  ==  \\192.168.1.242\tender laser\MD Work\ALU price history
+  # alu-history:
+  #   driver: local
+  #   driver_opts:
+  #     type: cifs
+  #     device: "//192.168.1.242/tender laser/MD Work/ALU price history"
+  #     o: "username=${CIFS_USERNAME},password=${CIFS_PASSWORD},vers=3.0,uid=0,gid=0,file_mode=0664,dir_mode=0775"
+  condutor:
+    external: true
+    name: infrastructure_condutor
