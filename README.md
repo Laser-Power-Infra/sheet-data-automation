@@ -35,6 +35,11 @@ Daily automation for the CACMAI Google Sheet tabs:
 - `B` and `X:AA` are copied with `copyPaste`; `B` is a separate copy range so the
   inserted/static columns between B and X are not overwritten.
 - Refuses to append if the sheet is ahead of today; uses today's row if it exists.
+- Missed dates (no run that day) are added before today's row by copying the row
+  above (`A:AA`), so the IEEMA/NALCO VLOOKUPs never hit a missing date. Same in
+  `BALCO DECLARED`, which also replaces the carried LME price (when LME reports that
+  date) and the RBI rate for missed weekdays. CACMAI prices stay carried (sources only
+  show the current circular). Limit: 366 days.
 - If any source failed, the run exits `1` even when a previous value was carried.
 
 ## Drag linked sheets

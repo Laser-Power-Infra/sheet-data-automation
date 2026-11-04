@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+from pathlib import Path
 
-from ..common.browser import browser_session
+from ..common.browser import BrowserSession, browser_session
 from ..common.config import load_app_config
 from ..common.errors import ParseError, ScrapeError
-from ..common.google import backfill_gap_rows, choose_target_row, is_filled, scan_dates
+from ..common.google import (
+    backfill_gap_rows,
+    choose_target_row,
+    gap_dates,
+    is_filled,
+    scan_dates,
+)
 from ..common.result import RunResult
 from ..common.values import decide_value, previous_value, same_number
 from .config import load_balco_declared_config
@@ -58,6 +65,30 @@ def log_decision(
         LOGGER.info("%s %s%s has no value and no previous value", label, column, row)
 
 
+def backfill_gap_rates(
+    sheet: BalcoDeclaredSheet,
+    gap_rows: dict[dt.date, int],
+    writes: dict[int, dict[str, object]],
+    session: BrowserSession,
+    *,
+    logs_dir: Path | None = None,
+) -> None:
+    """Replace the carried RBI rate on missed weekdays; weekends keep the carry."""
+    column = sheet.config.rate_column
+    for day, row in sorted(gap_rows.items()):
+        if day.weekday() >= 5:
+            continue
+        try:
+            link = sheet.read_link(sheet.config.link_cell)
+            rate = lookup_usd_rate(link, day, session, logs_dir=logs_dir)
+        except (ScrapeError, ParseError, ValueError) as exc:
+            LOGGER.warning("RBI for missed date %s failed; keeping carried rate: %s", day, exc)
+            continue
+        if rate is not None:
+            writes.setdefault(row, {})[column] = rate
+            LOGGER.info("RBI %s%s back-filled for missed date %s: %s", column, row, day, rate)
+
+
 def run(
     *,
     dry_run: bool,
@@ -72,11 +103,18 @@ def run(
     rows_by_date, last_row, last_date = scan_dates(sheet.worksheet, config.date_column)
     today_row = rows_by_date.get(run_date)
 
+    gap_rows: dict[dt.date, int] = {}
     try:
         if today_row is None and last_date is not None and last_date < run_date:
+            previous_last_row = last_row
+            gaps = gap_dates(last_date, run_date)
             last_row = backfill_gap_rows(
                 sheet.worksheet, last_row, last_date, run_date, dry_run=dry_run
             )
+            if not dry_run and previous_last_row is not None:
+                # Gap rows now exist; let the LME data-date update and RBI lookup reach them.
+                gap_rows = {day: previous_last_row + i for i, day in enumerate(gaps, start=1)}
+                rows_by_date.update(gap_rows)
             last_date = max(last_date, run_date - dt.timedelta(days=1))
         target = choose_target_row(today_row, last_row, last_date, run_date)
     except ValueError as exc:
@@ -144,6 +182,8 @@ def run(
         )
         if value is not None:
             writes.setdefault(target.row, {})[config.rate_column] = value
+
+        backfill_gap_rates(sheet, gap_rows, writes, session, logs_dir=app.logs_dir)
 
         for source in sources:
             try:
