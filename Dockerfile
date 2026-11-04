@@ -13,7 +13,4 @@ COPY main.py run_balco_declared.py run_drag_sheets.py run_api.py ./
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
-
 CMD ["python", "run_api.py"]

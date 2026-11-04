@@ -39,18 +39,15 @@ ofelia/env.append
 
 ## 4. Compose service
 
-Copy the matching pieces from:
+The `ofelia` service has no `env_file`, so values in `.env` only reach it when
+listed under its `environment:`. Add to the `ofelia` service in
+`infrastructure/docker-compose.yml`:
 
+```yaml
+    environment:
+      SHEET_DATA_SERVER: ${SHEET_DATA_SERVER}
+      SHEET_DATA_API_KEY: ${SHEET_DATA_API_KEY}
 ```
-ofelia/docker-compose.snippet.yml
-  -> infrastructure/docker-compose.yml
-```
-
-This adds:
-
-- the `sheet-data-automation` service
-- `SHEET_DATA_SERVER` / `SHEET_DATA_API_KEY` on the `ofelia` service
-- `sheet-data-automation-state`, `sheet-data-automation-logs`, and `alu-history` volumes
 
 ## 5. Apply
 

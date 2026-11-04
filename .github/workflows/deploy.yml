@@ -1,0 +1,131 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "run_api.py"
+      - "main.py"
+      - "run_balco_declared.py"
+      - "run_drag_sheets.py"
+      - "apps_script/**"
+      - ".github/workflows/**"
+
+concurrency:
+  group: deploy-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build & Push image
+    # Only the org repo deploys; forks skip both jobs (deploy needs this one).
+    if: github.repository_owner == 'laser-power-infra'
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.vars.outputs.short_sha }}
+      owner_lowercase: ${{ steps.owner.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract short SHA
+        id: vars
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Lowercase owner
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ steps.owner.outputs.name }}/sheet-data-automation:latest
+            ghcr.io/${{ steps.owner.outputs.name }}/sheet-data-automation:${{ steps.vars.outputs.short_sha }}
+
+  deploy:
+    name: Deploy to Server
+    needs: build-and-push
+    runs-on: self-hosted
+    steps:
+      - name: Checkout latest code
+        uses: actions/checkout@v4
+
+      - name: Sync latest docker-compose.yml
+        shell: powershell
+        run: |
+          Copy-Item -Path "docker-compose.yml" -Destination "D:/sheet-data-automation/docker-compose.yml" -Force
+          Write-Host "Synced latest docker-compose.yml to D:/sheet-data-automation/"
+
+      - name: Pull and restart container
+        shell: powershell
+        working-directory: D:/sheet-data-automation
+        env:
+          APP_VERSION: ${{ needs.build-and-push.outputs.short_sha }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:APP_VERSION = $env:APP_VERSION
+
+          docker compose pull sheet-data-automation
+          docker compose up -d --no-deps sheet-data-automation
+
+          $repo = "ghcr.io/laser-power-infra/sheet-data-automation"
+          $allImages = docker images --filter "reference=$repo" --format "{{.ID}}" | Select-Object -Unique
+          $oldImages = $allImages | Select-Object -Skip 2
+
+          if ($oldImages) {
+              Write-Host "Cleaning up old images: $oldImages"
+              $oldImages | ForEach-Object { docker rmi -f $_ }
+          } else {
+              Write-Host "No old images to prune. Latest and previous images preserved."
+          }
+
+          docker image prune -f
+
+      - name: Wait for /health
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $url = "http://localhost:8000/health"
+          for ($i = 1; $i -le 12; $i++) {
+              try {
+                  $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5
+                  if ($r.StatusCode -eq 200) {
+                      Write-Host "Healthy: $($r.Content)"
+                      exit 0
+                  }
+              } catch {
+                  Write-Host "Attempt $i/12: not ready yet ($($_.Exception.Message))"
+              }
+              Start-Sleep -Seconds 5
+          }
+          Write-Host "sheet-data-automation did not become healthy at $url within 60s; last 50 log lines:"
+          docker compose -f D:/sheet-data-automation/docker-compose.yml logs --tail 50 sheet-data-automation
+          exit 1

@@ -149,18 +149,35 @@ py run_api.py
 
 ## Docker (Windows Docker Desktop)
 
-The compose file defines its own CIFS volume `alu-history` pointing at
-`//192.168.1.242/tender laser/MD Work/ALU price history` (= `W:\ALU price history`),
-mounted at `/mnt/alu`. Set `CIFS_USERNAME` / `CIFS_PASSWORD` in `.env`.
+### Deploy (CI/CD)
 
+Pushing to `main` runs `.github/workflows/deploy.yml`:
+
+1. **build-and-push** (GitHub-hosted): builds the image and pushes
+   `ghcr.io/laser-power-infra/sheet-data-automation:latest` and `:<short_sha>`.
+2. **deploy** (self-hosted runner on the server): copies `docker-compose.yml` into
+   `D:\sheet-data-automation`, then `docker compose pull` + `docker compose up -d`,
+   prunes old images (keeps the newest two) and waits for `/health` to return 200.
+
+`docker-compose.yml` uses the GHCR image (`${APP_VERSION:-latest}`); it no longer
+builds locally. `.env`, `state/`, `logs/` and the external `infrastructure_condutor`
+volume (mounted at `/mnt/alu`) live on the server and are not touched by the deploy.
+
+Manual redeploy on the server:
 ```powershell
-docker compose build
-docker compose up -d
+cd D:\sheet-data-automation
+docker compose pull sheet-data-automation
+docker compose up -d --no-deps sheet-data-automation
 curl http://localhost:8000/health
 ```
 
-`state/`, `logs/` and `alu-history` are mounted into the container. The API uses
-one uvicorn worker and one container replica; do not scale it.
+Local image build (bypassing GHCR):
+```powershell
+docker build -t ghcr.io/laser-power-infra/sheet-data-automation:latest .
+docker compose up -d
+```
+
+The API uses one uvicorn worker and one container replica; do not scale it.
 
 CLI jobs still work through the same image:
 ```powershell
