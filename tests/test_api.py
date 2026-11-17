@@ -179,3 +179,4 @@ def test_api_health_alias_matches_health(
     response = client.get("/api/health")
     assert response.status_code == code
     assert response.json() == client.get("/health").json()
+    assert response.headers["access-control-allow-origin"] == "*"

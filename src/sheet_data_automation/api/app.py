@@ -112,7 +112,12 @@ def health() -> JSONResponse:
         "busy": is_busy(),
         "last": _last_payload(),
     }
-    return JSONResponse(status_code=200 if config_ok else 503, content=payload)
+    # master_dashboard checks health from the browser (CORS fetch), so the header is required.
+    return JSONResponse(
+        status_code=200 if config_ok else 503,
+        content=payload,
+        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/v1/status")

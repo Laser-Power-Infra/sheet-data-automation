@@ -145,7 +145,8 @@ One container, one process, one port. FastAPI serves both the circular upload UI
 - Circular PDFs are git-ignored; keep them out of the repo.
 - master_dashboard: register the service with `ip` = server, `port` = 6321, `protocol` = HTTP,
   `healthcheck` = `/api/health` (also served as `/health`), `baseUrl` = `http://<server>:6321`.
-  The dashboard probes server-side and previews `baseUrl` in an iframe, so no CORS or frame headers are needed.
+  The dashboard checks health from the browser, so `/api/health` and `/health` send `Access-Control-Allow-Origin: *`;
+  it previews `baseUrl` in an iframe, so do not add frame-blocking headers.
 
 Job endpoints need `x-api-key: $SHEET_DATA_API_KEY`. A missing server key returns `503`,
 a wrong key `401`, an already-running job `409`. Job failures return HTTP `200`
