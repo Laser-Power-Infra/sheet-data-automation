@@ -9,3 +9,4 @@ token.json
 .env
 tests
 apps_script
+*.pdf

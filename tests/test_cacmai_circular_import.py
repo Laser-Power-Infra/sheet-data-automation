@@ -95,3 +95,27 @@ def test_real_pdf_when_present() -> None:
     assert rows[dt.date(2026, 10, 3)] == rows[dt.date(2026, 10, 2)]
     assert rows[dt.date(2026, 10, 12)] == rows[dt.date(2026, 10, 9)]
     assert dt.date(2026, 10, 17) not in rows
+
+
+def test_note_without_n_and_signature_before_tables() -> None:
+    text = SAMPLE_TEXT.replace("NOTE:", "OTE:").replace(
+        "For Cable and Conductor Manufacturers Association of India\n", ""
+    )
+    text = text.replace(
+        "a. INGOTS/ALUMINIUM HOT METAL.", "For Cable and Conductor\na. INGOTS/ALUMINIUM HOT METAL."
+    )
+    assert parse_circular_text(text) == parse_circular_text(SAMPLE_TEXT)
+
+
+def test_second_real_pdf_when_present() -> None:
+    pdf = Path(__file__).resolve().parents[1] / "Doc13L-109A.pdf"
+    if not pdf.is_file():
+        pytest.skip("Doc13L-109A.pdf not available")
+    data = parse_circular_pdf(pdf)
+    rows = build_circular_rows(data)
+
+    assert len(data.dates) == 9
+    assert (data.dates[0], data.dates[-1]) == (dt.date(2026, 10, 16), dt.date(2026, 11, 1))
+    assert len(rows) == 17
+    last = rows[dt.date(2026, 11, 1)]
+    assert (last["C"], last["S"], last["AV"]) == (375950, 375950, 392575)

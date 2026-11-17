@@ -169,3 +169,13 @@ def test_health_returns_503_when_config_is_invalid(
     response = client.get("/health")
     assert response.status_code == 503
     assert response.json()["config_ok"] is False
+
+
+@pytest.mark.parametrize(("ok", "code"), [(True, 200), (False, 503)])
+def test_api_health_alias_matches_health(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, ok: bool, code: int
+) -> None:
+    monkeypatch.setattr(api_app, "_config_status", lambda: (ok, None if ok else "bad"))
+    response = client.get("/api/health")
+    assert response.status_code == code
+    assert response.json() == client.get("/health").json()

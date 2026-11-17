@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +18,7 @@ from ..common.pdftext import extract_text, parse_price
 LOGGER = logging.getLogger(__name__)
 
 TOP_MARKER = "A. Aluminium"
-TOP_END_MARKER = "NOTE:"
+TOP_END_MARKER = "OTE:"  # some circulars lose the leading "N" in text extraction
 INGOT_MARKER = "a. INGOTS/ALUMINIUM HOT METAL."
 ROD_MARKER = "b. RODS."
 ALLOY_MARKER = "C.ALLOY RODS."
@@ -54,7 +55,7 @@ def parse_circular_text(text: str) -> CircularData:
     )
     rods = _parse_section(_section(text, ROD_MARKER, ALLOY_MARKER), 5, "b. RODS")
     alloy = _parse_section(
-        _section(text, ALLOY_MARKER, ALLOY_END_MARKER), 3, "C.ALLOY RODS"
+        _section(text, ALLOY_MARKER, ALLOY_END_MARKER, optional_end=True), 3, "C.ALLOY RODS"
     )
 
     _validate_dates(ec, ingots, rods, alloy)
@@ -103,7 +104,9 @@ def sync_rows(
     *,
     date_column: str = "A",
     apply: bool,
-) -> dict[str, int]:
+    columns: tuple[str, ...] = TARGET_COLUMNS,
+    backup_prefix: str = "cacmai-import",
+) -> dict[str, object]:
     existing_by_date, _, _ = scan_dates(worksheet, date_column)
     missing: list[dt.date] = []
     targets: list[tuple[dt.date, int, dict[str, int]]] = []
@@ -124,7 +127,7 @@ def sync_rows(
         matrix = _read_target_rows(worksheet, min_row, max_row)
         for day, row_number, values in targets:
             offset = row_number - min_row
-            current = _row_target_values(matrix[offset] if offset < len(matrix) else [])
+            current = _row_target_values(matrix[offset] if offset < len(matrix) else [], columns)
             changes = {
                 column: value
                 for column, value in values.items()
@@ -135,7 +138,7 @@ def sync_rows(
 
     if not planned:
         LOGGER.info("No changes needed")
-        return {"dates": len(rows), "rows": 0, "cells": 0, "missing": len(missing)}
+        return _summary(rows, [], missing)
 
     cells = sum(len(changes) for _, _, changes, _ in planned)
     LOGGER.info(
@@ -154,14 +157,14 @@ def sync_rows(
 
     if not apply:
         LOGGER.info("DRY_RUN: no cells written (pass --apply to write)")
-        return {"dates": len(rows), "rows": len(planned), "cells": cells, "missing": len(missing)}
+        return _summary(rows, planned, missing)
 
     backup = {
         f"{column}{row_number}": current.get(column)
         for _, row_number, changes, current in planned
         for column in changes
     }
-    backup_path = _write_backup(backup)
+    backup_path = _write_backup(backup, backup_prefix)
     LOGGER.info("Saved cell backup to %s", backup_path)
 
     updates = [
@@ -171,7 +174,25 @@ def sync_rows(
     ]
     _write_updates(worksheet, updates)
     LOGGER.info("Wrote %s cell(s) across %s row(s)", cells, len(planned))
-    return {"dates": len(rows), "rows": len(planned), "cells": cells, "missing": len(missing)}
+    return _summary(rows, planned, missing)
+
+
+def _summary(
+    rows: dict[dt.date, dict[str, int]],
+    planned: list[tuple[dt.date, int, dict[str, int], dict[str, object]]],
+    missing: list[dt.date],
+) -> dict[str, object]:
+    return {
+        "dates": len(rows),
+        "rows": len(planned),
+        "cells": sum(len(changes) for _, _, changes, _ in planned),
+        "missing": len(missing),
+        "missing_dates": [day.isoformat() for day in missing],
+        "preview": [
+            {"date": day.isoformat(), "row": row_number, "changes": changes}
+            for day, row_number, changes, _ in planned
+        ],
+    }
 
 
 @sheet_op
@@ -186,10 +207,10 @@ def _read_target_rows(
     )
 
 
-def _row_target_values(cells: list[object]) -> dict[str, object]:
+def _row_target_values(cells: list[object], columns: tuple[str, ...]) -> dict[str, object]:
     base = column_index("C") - 1
     result: dict[str, object] = {}
-    for column in TARGET_COLUMNS:
+    for column in columns:
         index = column_index(column) - 1 - base
         result[column] = cells[index] if 0 <= index < len(cells) else None
     return result
@@ -200,23 +221,25 @@ def _write_updates(worksheet: gspread.Worksheet, updates: list[dict[str, object]
     worksheet.batch_update(updates, value_input_option="USER_ENTERED")
 
 
-def _write_backup(backup: dict[str, object]) -> Path:
-    folder = BASE_DIR / "state" / "backups"
+def _write_backup(backup: dict[str, object], prefix: str) -> Path:
+    folder = Path(os.getenv("BACKUP_DIR") or BASE_DIR / "state" / "backups")
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"cacmai-import-{dt.datetime.now():%Y%m%d-%H%M%S-%f}.json"
+        path = folder / f"{prefix}-{dt.datetime.now():%Y%m%d-%H%M%S-%f}.json"
         path.write_text(json.dumps(backup, indent=2, sort_keys=True), encoding="utf-8")
     except OSError as exc:
         raise OSError(f"Could not write import backup: {exc}") from exc
     return path
 
 
-def _section(text: str, start: str, end: str) -> str:
+def _section(text: str, start: str, end: str, *, optional_end: bool = False) -> str:
     start_index = text.find(start)
     if start_index < 0:
         raise ParseError(f"Section header not found: {start!r}")
     end_index = text.find(end, start_index + len(start))
     if end_index < 0:
+        if optional_end:  # signature line may sit before the tables in some circulars
+            return text[start_index + len(start) :]
         raise ParseError(f"Section end not found: {end!r}")
     return text[start_index + len(start) : end_index]
 
@@ -302,8 +325,8 @@ def _carry_forward(
     return result
 
 
-def _same_number(current: object, value: int) -> bool:
+def _same_number(current: object, value: float) -> bool:
     try:
-        return int(str(current).replace(",", "").strip()) == value
+        return abs(float(str(current).replace(",", "").strip()) - value) < 1e-9
     except (TypeError, ValueError):
         return False

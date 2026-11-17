@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from ..archive.config import load_archive_config
 from ..balco_declared.config import load_balco_declared_config
@@ -13,10 +15,12 @@ from ..cacmai_conductors.config import load_cacmai_config
 from ..common.config import load_app_config
 from ..common.errors import ConfigError, ParseError, ScrapeError, SheetError
 from ..common.logging import setup_logging
+from ..oneoff.importers import IMPORTERS, MAX_PDF_BYTES, run_import
 from .auth import require_api_key
 from .jobs import (
     JOB_ORDER,
     JobAlreadyRunningError,
+    exclusive,
     is_busy,
     last_results,
     run_all,
@@ -25,6 +29,7 @@ from .jobs import (
 from .schemas import RunRequest, RunResponse
 
 LOGGER = logging.getLogger(__name__)
+INDEX_HTML = Path(__file__).parent / "static" / "index.html"
 
 
 @asynccontextmanager
@@ -97,6 +102,7 @@ def _last_payload() -> dict[str, dict[str, object]]:
 
 
 @app.get("/health")
+@app.get("/api/health")  # master_dashboard's default probe path
 def health() -> JSONResponse:
     config_ok, config_error = _config_status()
     payload = {
@@ -168,3 +174,33 @@ def run_everything(
     _: None = Depends(require_api_key),
 ) -> RunResponse:
     return run_all(request)
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(INDEX_HTML, media_type="text/html")
+
+
+@app.post("/api/v1/uploads/{kind}")
+def upload_circular(
+    kind: str,
+    file: Annotated[UploadFile, File()],
+    apply: Annotated[bool, Form()] = False,
+) -> JSONResponse:  # no API key: the upload UI is used on the internal network only
+    if kind not in IMPORTERS:
+        raise HTTPException(status_code=404, detail=f"Unknown upload type: {kind}")
+    data = file.file.read(MAX_PDF_BYTES + 1)
+    if len(data) > MAX_PDF_BYTES:
+        return JSONResponse(
+            status_code=413,
+            content={"success": False, "error": "PDF is larger than 10 MB."},
+        )
+    try:
+        with exclusive():
+            result = run_import(kind, data, apply=apply)
+    except ParseError as exc:
+        # User-fixable (wrong/odd PDF): 422, not a server fault.
+        LOGGER.warning("Upload %s rejected: %s", kind, exc)
+        return JSONResponse(status_code=422, content={"success": False, "error": str(exc)})
+    LOGGER.info("Upload %s apply=%s: %s cell(s)", kind, apply, result["cells"])
+    return JSONResponse(content={"success": True, **result})

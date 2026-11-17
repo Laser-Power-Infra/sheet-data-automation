@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Circular Upload</title>
+<style>
+  :root {
+    --bg:#f4f6fa; --card:#fff; --text:#0e1a2b; --muted:#5b677a; --line:rgba(14,26,43,.12);
+    --fill:rgba(14,26,43,.05);
+    --ok:#15803d; --ok-bg:rgba(22,163,74,.12); --warn:#b45309; --warn-bg:rgba(217,119,6,.14);
+    --err:#c81e1e; --err-bg:rgba(220,38,38,.1);
+    --glass:rgba(244,246,250,.72); --glass-edge:rgba(255,255,255,.8);
+    --lift:0 1px 2px rgba(14,26,43,.06), 0 12px 32px rgba(14,26,43,.08);
+    --spring:linear(0, .18 8%, .45 20%, .68 34%, .83 48%, .92 62%, .97 78%, 1);
+    --r-s:.5rem; --r-l:1.25rem;
+  }
+  .t-blue   { --c:#2f6fde; --on:#fff; }
+  .t-teal   { --c:#0b7f70; --on:#fff; }
+  .t-amber  { --c:#e8801a; --on:#2a1600; }
+  .t-violet { --c:#7c5ce0; --on:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0b1220; --card:#131c2e; --text:#eef2f9; --muted:#97a3b8; --line:rgba(238,242,249,.13);
+      --fill:rgba(238,242,249,.07);
+      --ok:#4ade80; --ok-bg:rgba(74,222,128,.14); --warn:#fbbf24; --warn-bg:rgba(251,191,36,.15);
+      --err:#ff8a80; --err-bg:rgba(255,99,90,.16);
+      --glass:rgba(11,18,32,.7); --glass-edge:rgba(255,255,255,.1);
+      --lift:0 1px 2px rgba(0,0,0,.4), 0 12px 32px rgba(0,0,0,.4);
+    }
+    .t-blue   { --c:#6b9bff; --on:#07142e; }
+    .t-teal   { --c:#2cc4ae; --on:#04201c; }
+    .t-amber  { --c:#ffa040; --on:#2a1600; }
+    .t-violet { --c:#a18bff; --on:#150b3a; }
+  }
+  @media (prefers-contrast: more) { :root { --line:currentColor; --muted:var(--text); } }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font-optical-sizing:auto;
+         font:100%/1.5 -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI", sans-serif; }
+  h1, h2 { font-family:ui-rounded, "SF Pro Rounded", -apple-system, system-ui, "Segoe UI", sans-serif; margin:0; }
+
+  header { position:sticky; top:0; z-index:5; background:var(--glass); border-bottom:1px solid var(--line);
+           -webkit-backdrop-filter:blur(20px) saturate(180%); backdrop-filter:blur(20px) saturate(180%);
+           box-shadow:inset 0 1px 0 var(--glass-edge); }
+  .bar { max-width:62rem; margin:0 auto; padding:.85rem 1rem; display:flex; align-items:center; gap:.8rem; }
+  .logo { display:flex; gap:.22rem; } .logo i { width:.55rem; height:1.5rem; border-radius:.2rem; }
+  h1 { font-size:1.4rem; line-height:1.1; letter-spacing:-.03em; font-weight:750; }
+  .sub { color:var(--muted); font-size:.88rem; margin:0 0 0 auto; text-align:right; }
+  main { max-width:62rem; margin:0 auto; padding:1.5rem 1rem 4rem; display:grid; gap:1.1rem; }
+
+  .band { position:relative; background:var(--card); border:1px solid var(--line); border-radius:var(--r-l);
+          padding:1.25rem 1.25rem 1.25rem 1.6rem; overflow:hidden; transition:box-shadow .25s; }
+  .band::before { content:""; position:absolute; inset:0 auto 0 0; width:.45rem; background:var(--c); }
+  .band:hover, .band:focus-within { box-shadow:var(--lift); }
+  .head { display:flex; align-items:baseline; gap:.2rem .8rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .head h2 { font-size:1.25rem; line-height:1.2; letter-spacing:-.02em; font-weight:700; }
+  .tab { color:var(--muted); font-size:.88rem; }
+  .tab b { color:var(--text); font-weight:600; }
+  .slots { display:grid; gap:1.1rem; grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr)); }
+  .slotlabel { font-size:.88rem; font-weight:600; margin-bottom:.45rem; }
+  .slotlabel span { color:var(--muted); font-weight:400; }
+
+  .drop { display:flex; align-items:center; gap:.85rem; min-height:5.2rem; padding:1rem 1.1rem;
+          border:2px dashed color-mix(in srgb, var(--c) 45%, transparent); border-radius:var(--r-l);
+          background:color-mix(in srgb, var(--c) 7%, var(--card)); cursor:pointer;
+          transition:transform 100ms ease-out, background .2s, border-color .2s; }
+  .drop:hover { background:color-mix(in srgb, var(--c) 12%, var(--card)); }
+  .drop:active { transform:scale(.985); }
+  .drop.over { background:color-mix(in srgb, var(--c) 20%, var(--card)); border-color:var(--c);
+               transform:scale(1.02); transition-timing-function:var(--spring); transition-duration:.4s; }
+  .drop.has { border-style:solid; border-color:color-mix(in srgb, var(--c) 35%, transparent); }
+  .ico { flex:none; width:2.5rem; height:3rem; border-radius:.4rem; background:var(--c); color:var(--on);
+         display:grid; place-items:center; font-size:.68rem; font-weight:800; letter-spacing:.02em; position:relative; }
+  .ico::after { content:""; position:absolute; top:0; right:0; width:.7rem; height:.7rem; background:var(--card);
+                border-bottom-left-radius:.35rem; opacity:.6; }
+  .file { min-width:0; flex:1; } .name { font-weight:600; line-height:1.3; overflow-wrap:anywhere; }
+  .meta { font-size:.82rem; color:var(--muted); }
+  .status { flex:none; width:.7rem; height:.7rem; border-radius:50%; background:transparent; }
+  .drop.ok .status { background:var(--ok); } .drop.bad .status { background:var(--err); }
+  .drop.busy .status { background:var(--c); animation:pulse 1s ease-in-out infinite; }
+
+  button { padding:.6rem 1.1rem; border:0; border-radius:var(--r-s); background:var(--c); color:var(--on);
+           font:inherit; font-weight:650; cursor:pointer; transition:transform 100ms ease-out, opacity .2s; }
+  button:active:not(:disabled) { transform:scale(.97); }
+  button.secondary { background:var(--fill); color:var(--text); }
+  button:disabled { opacity:.35; cursor:not-allowed; }
+  :focus-visible { outline:3px solid var(--c); outline-offset:2px; }
+  .actions { display:flex; gap:.5rem; margin-top:.8rem; }
+  .actions .apply { flex:1; }
+
+  .result { display:grid; grid-template-rows:0fr; transition:grid-template-rows .35s var(--spring); }
+  .result.show { grid-template-rows:1fr; }
+  .result > div { overflow:hidden; min-height:0; }
+  .banner { margin-top:.8rem; padding:.65rem .85rem; border-radius:var(--r-s); font-size:.9rem; line-height:1.4; }
+  .banner.ok { background:var(--ok-bg); color:var(--ok); } .banner.warn { background:var(--warn-bg); color:var(--warn); }
+  .banner.err { background:var(--err-bg); color:var(--err); } .banner.info { background:var(--fill); color:var(--muted); }
+  .banner b { font-weight:700; }
+  .tiles { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; margin-top:.6rem; }
+  .tile { border-radius:var(--r-s); padding:.55rem .8rem; background:color-mix(in srgb, var(--c) 10%, var(--card));
+          border:1px solid color-mix(in srgb, var(--c) 25%, transparent); }
+  .tile b { display:block; font-size:1.6rem; line-height:1.1; letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+  .tile span { font-size:.82rem; color:var(--muted); }
+  .scroll { max-height:14rem; overflow:auto; margin-top:.6rem; border-radius:var(--r-s); border:1px solid var(--line); }
+  table { width:100%; border-collapse:collapse; font-size:.8rem; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:.32rem .6rem; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { position:sticky; top:0; background:var(--card); color:var(--muted); font-weight:600; }
+  tr:last-child td { border-bottom:0; }
+
+  #toasts { position:fixed; right:1rem; bottom:1rem; display:flex; flex-direction:column; gap:.5rem; z-index:10;
+            max-width:min(24rem,calc(100vw - 2rem)); }
+  .toast { background:var(--glass); border:1px solid var(--line); border-radius:var(--r-s); padding:.7rem .9rem;
+           font-size:.9rem; box-shadow:var(--lift), inset 0 1px 0 var(--glass-edge);
+           -webkit-backdrop-filter:blur(20px) saturate(180%); backdrop-filter:blur(20px) saturate(180%);
+           animation:in .45s var(--spring); transition:opacity .2s, transform .2s, filter .2s; }
+  .toast { --k:#2f6fde; display:flex; gap:.7rem; align-items:flex-start; position:relative; overflow:hidden;
+           padding:.8rem .8rem .95rem; border-radius:1rem; }
+  .toast.success { --k:var(--ok); } .toast.warning { --k:var(--warn); } .toast.error { --k:var(--err); }
+  .toast .ti { flex:none; width:1.6rem; height:1.6rem; border-radius:50%; display:grid; place-items:center;
+               background:color-mix(in srgb, var(--k) 18%, transparent); color:var(--k); font-weight:800; font-size:.85rem; }
+  .toast .tx { flex:1; min-width:0; line-height:1.35; } .toast .tx b { display:block; font-weight:700; }
+  .toast .tx span { color:var(--muted); font-size:.86rem; overflow-wrap:anywhere; }
+  .toast .x { flex:none; padding:.1rem .45rem; background:transparent; color:var(--muted); font-size:1.1rem; line-height:1; }
+  .toast .bar2 { position:absolute; left:0; bottom:0; height:.2rem; width:100%; background:var(--k); opacity:.7;
+                 transform-origin:left; animation:drain var(--ms) linear forwards; }
+  .toast:hover .bar2 { animation-play-state:paused; }
+  @keyframes drain { to { transform:scaleX(0); } }
+  .toast.leaving { opacity:0; transform:translateX(1.5rem); filter:blur(6px); }
+
+  @keyframes in { from { opacity:0; transform:translateX(1.5rem) scale(.96); filter:blur(8px); } }
+  @keyframes pulse { 50% { opacity:.25; } }
+  @media (max-width:36rem) { .sub { display:none; } .band { padding-left:1.4rem; } }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.15s !important; }
+    .toast, .toast.leaving { transform:none; filter:none; } .drop.over { transform:none; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    header, .toast { background:var(--card); -webkit-backdrop-filter:none; backdrop-filter:none; }
+  }
+</style>
+</head>
+<body>
+<header><div class="bar">
+  <span class="logo" aria-hidden="true"><i style="background:#2f6fde"></i><i style="background:#0b9c88"></i><i style="background:#e8801a"></i></span>
+  <h1>Circular upload</h1>
+  <p class="sub">Drop a circular, check what changes, then apply it to the sheet.</p>
+</div></header>
+<main id="cards"></main>
+<div id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+const SECTIONS = [
+  { title: "CACMAI circular", tab: "CACMAI CONDUCTORS", tone: "blue",
+    slots: [{ kind: "cacmai", doc: "CACMAI" }] },
+  { title: "IEEMA Conductor circular", tab: "IEEMA CONDUCTOR", tone: "teal",
+    slots: [{ kind: "ieema-conductor", doc: "IEEMA Conductor" }] },
+  { title: "IEEMA Cables", tab: "IEEMA CABLES", tone: "amber", slots: [
+    { kind: "ieema-cables", doc: "IEEMA Cables", label: "Cables circular", hint: "IEEMA(PVC)CABLE" },
+    { kind: "ieema-mvcc", doc: "IEEMA MVCC", tone: "violet", label: "MVCC circular",
+      hint: "fills semiconducting screening in column AD" },
+  ] },
+];
+
+const TOAST = { success: ["✓", "Done"], info: ["i", "Checked"], warning: ["!", "Check this"],
+                error: ["✕", "Couldn't continue"] };
+function toast(message, type = "info", ms = 6000) {
+  const el = document.createElement("div");
+  const [icon, title] = TOAST[type] || TOAST.info;
+  el.className = "toast " + type;
+  el.style.setProperty("--ms", ms + "ms");
+  el.innerHTML = `<span class="ti" aria-hidden="true">${icon}</span>
+    <div class="tx"><b>${title}</b><span>${esc(message)}</span></div>
+    <button class="x" aria-label="Dismiss">×</button><i class="bar2"></i>`;
+  const close = () => { el.classList.add("leaving"); setTimeout(() => el.remove(), 250); };
+  el.querySelector(".x").addEventListener("click", close);
+  el.querySelector(".bar2").addEventListener("animationend", close);
+  document.getElementById("toasts").appendChild(el);
+}
+
+function esc(v) { const d = document.createElement("div"); d.textContent = v; return d.innerHTML; }
+const size = (n) => n < 1048576 ? Math.max(1, Math.round(n / 1024)) + " KB" : (n / 1048576).toFixed(1) + " MB";
+
+async function send(kind, file, apply) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("apply", apply ? "true" : "false");
+  let res;
+  try {
+    res = await fetch("/api/v1/uploads/" + kind, { method: "POST", body });
+  } catch (_) { toast("Could not reach the server.", "error"); return null; }
+  let data = {};
+  try { data = await res.json(); } catch (_) {}
+  if (!res.ok) {
+    const detail = data.error || data.detail || res.statusText;
+    const label = { 409: "Another run is in progress. Try again shortly.",
+                    413: "PDF is too large (max 10 MB)." }[res.status] || detail;
+    toast(label, "error", 9000);
+    return { failed: true, message: label };
+  }
+  return data;
+}
+
+function build(section) {
+  const band = document.createElement("section");
+  band.className = "band t-" + section.tone;
+  band.innerHTML = `<div class="head"><h2>${esc(section.title)}</h2>
+    <span class="tab">Fills the <b>${esc(section.tab)}</b> tab</span></div><div class="slots"></div>`;
+  const slots = band.querySelector(".slots");
+  section.slots.forEach(slot => slots.appendChild(buildSlot(slot, section.tone)));
+  return band;
+}
+
+function buildSlot(section, bandTone) {
+  const card = document.createElement("div");
+  card.className = "slot t-" + (section.tone || bandTone);
+  card.innerHTML = `${section.label ? `<div class="slotlabel">${esc(section.label)}
+      <span>${esc(section.hint || "")}</span></div>` : ""}
+    <div class="drop" tabindex="0" role="button" aria-label="Choose the ${esc(section.doc)} PDF">
+      <span class="ico" aria-hidden="true">PDF</span>
+      <div class="file"><div class="name">Drop the ${esc(section.doc)} PDF here or choose a file</div>
+        <div class="meta"></div></div><span class="status"></span></div>
+    <input type="file" accept="application/pdf,.pdf" hidden>
+    <div class="actions"><button class="apply" disabled>Apply to sheet</button>
+      <button class="secondary clear" disabled>Clear</button></div>
+    <div class="result" aria-live="polite"><div></div></div>`;
+  const drop = card.querySelector(".drop"), input = card.querySelector("input"),
+        name = card.querySelector(".name"), meta = card.querySelector(".meta"),
+        result = card.querySelector(".result"), out = result.firstElementChild,
+        applyBtn = card.querySelector(".apply"), clearBtn = card.querySelector(".clear");
+  const idle = name.textContent;
+  let file = null, busy = false;
+
+  const show = (html) => { out.innerHTML = html; result.classList.toggle("show", !!html); };
+  const state = (s) => { drop.classList.remove("ok", "bad", "busy"); if (s) drop.classList.add(s); };
+  const setBusy = (b) => { busy = b; applyBtn.disabled = b || !card.dataset.ready; clearBtn.disabled = b || !file; };
+  const reset = () => { file = null; input.value = ""; name.textContent = idle; meta.textContent = "";
+                        drop.classList.remove("has"); state(""); show("");
+                        applyBtn.textContent = "Apply to sheet"; delete card.dataset.ready; setBusy(false); };
+
+  async function validate(f) {
+    if (!/\.pdf$/i.test(f.name)) { toast("Only PDF files are accepted.", "error"); return; }
+    file = f; name.textContent = f.name; meta.textContent = size(f.size); drop.classList.add("has");
+    state("busy"); show(`<div class="banner info">Checking the PDF…</div>`); delete card.dataset.ready;
+    applyBtn.textContent = "Apply to sheet";
+    setBusy(true);
+    const r = await send(section.kind, f, false);
+    if (!r) { reset(); return; }
+    if (r.failed) { state("bad"); show(`<div class="banner err">${esc(r.message)}</div>`); setBusy(false); return; }
+    state("ok");
+    const rows = r.preview.map(p => `<tr><td>${esc(p.date)}</td><td>${p.row}</td><td>${
+      Object.entries(p.changes).map(([c, v]) => esc(c + "=" + v)).join(", ")}</td></tr>`).join("");
+    show(`<div class="banner ok"><b>Valid ${esc(r.label)}.</b> Covers ${esc(r.first_date)} to ${esc(r.last_date)}.</div>
+      <div class="tiles"><div class="tile"><b>${r.rows}</b><span>rows to change</span></div>
+        <div class="tile"><b>${r.cells}</b><span>cells to change</span></div></div>` +
+      (r.missing ? `<div class="banner warn">${r.missing} date(s) have no sheet row and will be skipped: ${
+        esc(r.missing_dates.join(", "))}</div>` : "") +
+      (r.rows ? `<div class="scroll"><table><tr><th>Date</th><th>Row</th><th>Changes</th></tr>${rows}</table></div>`
+              : `<div class="banner info">The sheet already matches this PDF.</div>`));
+    toast(r.rows ? `Checked: ${r.cells} cell(s) will change.` : "Checked: nothing to change.",
+          r.rows ? "info" : "success");
+    if (r.missing) toast(`${r.missing} date(s) have no sheet row and will be skipped.`, "warning");
+    if (r.rows) { card.dataset.ready = "1"; applyBtn.textContent = `Apply ${r.cells} cells`; }
+    setBusy(false);
+  }
+
+  applyBtn.addEventListener("click", async () => {
+    if (!file || busy) return;
+    setBusy(true);
+    const r = await send(section.kind, file, true);
+    if (r && !r.failed) {
+      toast(`Applied ${r.cells} cell(s) across ${r.rows} row(s) to ${r.tab}.`, "success", 9000);
+      reset();
+      show(`<div class="banner ok"><b>Applied.</b> ${r.cells} cell(s) written to ${esc(r.tab)}.</div>`);
+    } else { setBusy(false); }
+  });
+  clearBtn.addEventListener("click", reset);
+  drop.addEventListener("click", () => input.click());
+  drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+  input.addEventListener("change", () => input.files[0] && validate(input.files[0]));
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over");
+                                       e.dataTransfer.files[0] && validate(e.dataTransfer.files[0]); });
+  return card;
+}
+const cards = document.getElementById("cards");
+SECTIONS.forEach(s => cards.appendChild(build(s)));
+</script>
+</body>
+</html>

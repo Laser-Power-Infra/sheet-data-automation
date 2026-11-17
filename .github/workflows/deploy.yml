@@ -113,7 +113,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
-          $url = "http://localhost:8000/health"
+          $url = "http://localhost:6321/health"
           for ($i = 1; $i -le 12; $i++) {
               try {
                   $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5

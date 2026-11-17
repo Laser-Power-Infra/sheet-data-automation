@@ -9,9 +9,10 @@ services:
       TZ: Asia/Kolkata
       ARCHIVE_ROOT: /mnt/alu/ALU price history
       ARCHIVE_STATE_FILE: /state/archive_state.json
+      BACKUP_DIR: /state/backups
       HEADLESS: "true"
     ports:
-      - "8000:8000"
+      - "6321:8000"
     volumes:
       - ./state:/state
       - ./logs:/app/logs

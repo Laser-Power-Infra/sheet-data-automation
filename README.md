@@ -67,9 +67,9 @@ It appends missing dates up to today and drags the configured columns:
   (for example IEEMA PROV MCX `W`/`Z` before BALCO has the next row).
 - If today's row already exists, only blank configured cells are filled; the date is
   never duplicated.
-- `IEEMA CABLES` currently has protected ranges (entire sheet plus columns A/B).
-  The service account must be added as an editor to those protections, otherwise
-  the date write fails with "protected cell".
+- `IEEMA CABLES` has 3 "restrict who can edit" protections: whole sheet (`943055313`),
+  column A (`69692212`) and column B (`1608894760`). They stack, so the service account
+  must stay an editor on **all three**, otherwise the write fails with "protected cell".
 
 ## Circular archive + Google upload
 
@@ -136,15 +136,26 @@ The three jobs are exposed by one FastAPI container. `run-all` runs them in orde
 | `POST` | `/api/v1/run-all` | run all three in order |
 | `GET` | `/api/v1/status` | last run result per job |
 
-Requests need `x-api-key: $SHEET_DATA_API_KEY`. A missing server key returns `503`,
+### UI and ports
+
+One container, one process, one port. FastAPI serves both the circular upload UI (`/`) and the API.
+- People: open `http://<server>:6321/` (compose publishes host port 6321 to container port 8000).
+- Ofelia: same Docker network, calls `http://sheet-data-automation:8000/api/v1/run-all` (container port, unchanged).
+- The upload UI and `/api/v1/uploads/*` need no API key, so keep port 6321 on the internal network.
+- Circular PDFs are git-ignored; keep them out of the repo.
+- master_dashboard: register the service with `ip` = server, `port` = 6321, `protocol` = HTTP,
+  `healthcheck` = `/api/health` (also served as `/health`), `baseUrl` = `http://<server>:6321`.
+  The dashboard probes server-side and previews `baseUrl` in an iframe, so no CORS or frame headers are needed.
+
+Job endpoints need `x-api-key: $SHEET_DATA_API_KEY`. A missing server key returns `503`,
 a wrong key `401`, an already-running job `409`. Job failures return HTTP `200`
 with `"success": false` and per-job `failures`.
 
 ```powershell
-curl -H "x-api-key: $env:SHEET_DATA_API_KEY" http://localhost:8000/api/v1/run-all
+curl -H "x-api-key: $env:SHEET_DATA_API_KEY" http://localhost:6321/api/v1/run-all
 curl -X POST -H "x-api-key: $env:SHEET_DATA_API_KEY" `
   -H "Content-Type: application/json" -d '{\"dry_run\": true}' `
-  http://localhost:8000/api/v1/run-all
+  http://localhost:6321/api/v1/run-all
 ```
 
 Local:
@@ -173,7 +184,7 @@ Manual redeploy on the server:
 cd D:\sheet-data-automation
 docker compose pull sheet-data-automation
 docker compose up -d --no-deps sheet-data-automation
-curl http://localhost:8000/health
+curl http://localhost:6321/health
 ```
 
 Local image build (bypassing GHCR):

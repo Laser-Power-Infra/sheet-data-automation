@@ -21,3 +21,6 @@ logs/
 
 # Archive form state and browser profile
 state/
+
+# Circular PDFs (IEEMA/CACMAI) are not committed
+*.pdf
